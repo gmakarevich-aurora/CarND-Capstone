@@ -11,7 +11,10 @@ import tf
 import cv2
 import yaml
 
+import math
+
 STATE_COUNT_THRESHOLD = 3
+MAX_LIGHTS_DISTANCE = 50
 
 class TLDetector(object):
     def __init__(self):
@@ -70,6 +73,11 @@ class TLDetector(object):
         """
         self.has_image = True
         self.camera_image = msg
+        
+        light = self.get_closest_light(self.pose, self.lights)
+        if light is not None:
+            rospy.loginfo('Got a light %s' % light.state)
+        
         light_wp, state = self.process_traffic_lights()
 
         '''
@@ -89,6 +97,57 @@ class TLDetector(object):
         else:
             self.upcoming_red_light_pub.publish(Int32(self.last_wp))
         self.state_count += 1
+
+    def get_closest_light(self, pose, lights):
+        """Identifies the closest traffic light, if any
+        Args:
+            pose (Pose): current position of the car
+            lights (TrafficLights): reported lights
+
+        Returns:
+            Traffic light or None
+
+        """
+        if pose is None:
+            return None
+
+        if lights is None:
+            return None
+
+        quaternion = (pose.pose.orientation.x, pose.pose.orientation.y,
+                      pose.pose.orientation.z, pose.pose.orientation.w)
+        # https://answers.ros.org/question/69754/quaternion-transformations-in-python/
+        euler_orientation = tf.transformations.euler_from_quaternion(quaternion)
+        # roll = euler_orientation[0]
+        # pitch = euler_orientation[1]
+        yaw = euler_orientation[2]
+
+        def dist(p1, p2):
+            return math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2)
+
+        result = None
+        best_distance = None
+
+        for i in range(len(lights)):
+            distance = dist(pose.pose.position, lights[i].pose.pose.position)
+            rospy.loginfo('Distance is %f' % distance)
+
+            if best_distance is not None:
+                if distance > best_distance:
+                    continue
+
+            if distance < MAX_LIGHTS_DISTANCE:
+                heading = math.atan2(
+                    (lights[i].pose.pose.position.y - pose.pose.position.y),
+                    (lights[i].pose.pose.position.x - pose.pose.position.x))
+                angle = abs(yaw - heading)
+                rospy.loginfo('Angle is %f' % angle)
+                if angle < math.pi / 9:
+                    best_distance = distance
+                    result = lights[i]
+
+        return result
+
 
     def get_closest_waypoint(self, pose):
         """Identifies the closest path waypoint to the given position
