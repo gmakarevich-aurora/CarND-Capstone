@@ -14,7 +14,37 @@ import yaml
 import math
 
 STATE_COUNT_THRESHOLD = 3
-MAX_LIGHTS_DISTANCE = 50
+MAX_LIGHTS_DISTANCE = 300
+MIN_LIGHTS_DISTANCE = 20
+
+class GroundTruthBuilder(object):
+    def __init__(self):
+        self.red_count = 0;
+        self.yellow_count = 0;
+        self.green_count = 0;
+        self.images_dir = "/home/student/saved_images"
+        self.red_dir = self.images_dir + "/red"
+        self.yellow_dir = self.images_dir + "/yellow"
+        self.green_dir = self.images_dir + "/green"
+
+    def save_image(self, light, image):
+        img_file = None
+        if light == TrafficLight.RED:
+            self.red_count = self.red_count + 1
+            img_file = '%s/%d.png' % (self.red_dir, self.red_count)
+        elif light == TrafficLight.YELLOW:
+            self.yellow_count = self.yellow_count + 1
+            img_file = '%s/%d.png' % (self.yellow_dir, self.yellow_count)
+        elif light == TrafficLight.GREEN:
+            self.green_count = self.green_count + 1
+            img_file = '%s/%d.png' % (self.green_dir, self.green_count)
+
+        if img_file is not None:
+            rospy.loginfo("img_file %s", img_file)
+            cv2.imwrite(img_file, image)
+            rospy.loginfo("Total: %d; Red: %d; Yellow: %d; Green: %d",
+                          (self.red_count + self.yellow_count + self.green_count),
+                          self.red_count, self.yellow_count, self.green_count)
 
 class TLDetector(object):
     def __init__(self):
@@ -52,6 +82,8 @@ class TLDetector(object):
         self.last_wp = -1
         self.state_count = 0
 
+        self.gt_builer = GroundTruthBuilder()
+
         rospy.spin()
 
     def pose_cb(self, msg):
@@ -73,10 +105,12 @@ class TLDetector(object):
         """
         self.has_image = True
         self.camera_image = msg
-        
+
         light = self.get_closest_light(self.pose, self.lights)
         if light is not None:
-            rospy.loginfo('Got a light %s' % light.state)
+            # rospy.loginfo('Got a light %s' % light.state)
+            cv_image = self.bridge.imgmsg_to_cv2(self.camera_image, "bgr8")
+            self.gt_builer.save_image(light.state, cv_image)
         
         light_wp, state = self.process_traffic_lights()
 
@@ -130,18 +164,18 @@ class TLDetector(object):
 
         for i in range(len(lights)):
             distance = dist(pose.pose.position, lights[i].pose.pose.position)
-            rospy.loginfo('Distance is %f' % distance)
+            # rospy.loginfo('Distance is %f' % distance)
 
             if best_distance is not None:
                 if distance > best_distance:
                     continue
 
-            if distance < MAX_LIGHTS_DISTANCE:
+            if (distance < MAX_LIGHTS_DISTANCE) and (distance > MIN_LIGHTS_DISTANCE):
                 heading = math.atan2(
                     (lights[i].pose.pose.position.y - pose.pose.position.y),
                     (lights[i].pose.pose.position.x - pose.pose.position.x))
                 angle = abs(yaw - heading)
-                rospy.loginfo('Angle is %f' % angle)
+                # rospy.loginfo('Angle is %f' % angle)
                 if angle < math.pi / 9:
                     best_distance = distance
                     result = lights[i]
